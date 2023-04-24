@@ -1,0 +1,160 @@
+---
+title: "Power Asymmetry in Case-Control Studies"
+author: "Alex Stern"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Calculating non-centrality parameter for case-control studies
+
+First we are interested in calculating the power to detect risk-increasing alleles for different case/control fractions, effect sizes. The non-centrality parameter (NCP) is a measure of power; a greater NCP indicates a greater power to detect a variant.
+
+```{r}
+## Calculate non-centrality parameter 
+calc_NCP <- function(p, Nd, Nc, B, prev) {
+  
+  # p = risk-increasing allele freq 
+  # Nd = number of cases
+  # Nc = number of controls 
+  # B = absolute value of liability scale effect size
+  # prev = prevalence 
+  
+  # Compute threshold 
+  t <- qnorm(1 - prev)
+  
+  # Compute mean liability 
+  mu_1 <- B * (1 -p)
+  mu_2 <- -B * p
+  sigma_2 <- 1 - (B^2 * p *(1 -p))
+  
+  # Conditional Probabilities 
+  p_case_a1 <- 1 - pnorm(t, mean = mu_1, sd = sqrt(sigma_2))
+  p_case_a2 <- 1 - pnorm(t, mean = mu_2, sd = sqrt(sigma_2))
+  p_control_a1 <- pnorm(t, mean = mu_1, sd = sqrt(sigma_2))
+  p_control_a2 <- pnorm(t, mean = mu_2, sd = sqrt(sigma_2))
+  
+  # Compute allele frequency conditional on status
+  p_d1 <- (p_case_a1 * p) / (1 - pnorm(t, mean = 0, sd = 1))
+  p_c1 <- (p_control_a1 * p) / pnorm(t, mean = 0, sd = 1)
+  
+  # Observed counts
+  q1_o <- 2 * Nd * p_d1
+  q2_o <- 2 * Nc * p_c1
+  q3_o <- 2 * Nd * (1 - p_d1)
+  q4_o <- 2 * Nc * (1 - p_c1)
+  
+  # Expected counts
+  q1_e <- ((2 * (Nd*p_d1 + Nc*p_c1)) * (2*Nd)) / (2* (Nd + Nc))
+  q2_e <- ((2 * (Nd*p_d1 + Nc*p_c1)) * (2*Nc)) / (2* (Nd + Nc))
+  q3_e <- ((2 * (Nd*(1-p_d1) + Nc*(1- p_c1))) * (2*Nd)) / (2* (Nd + Nc))
+  q4_e <- ((2 * (Nd*(1-p_d1) + Nc*(1- p_c1))) * (2*Nc)) / (2* (Nd + Nc))
+  
+  # Compute NCP 
+  NCP <- ((q1_o - q1_e)^2 / q1_e) + ((q2_o - q2_e)^2 / q2_e) + ((q3_o - q3_e)^2 / q3_e) + ((q4_o - q4_e)^2 / q4_e)
+  
+  # Return NCP
+  return(NCP)
+}
+```
+
+With this, we can perform some basic checks to see if the behavior of `calc_NCP` matches theoretical predictions.
+
+For example, we expect a greater power to detect traits with a lower risk-increasing allele frequency. That is we expect traits with a lower values for `p` to have higher NCPs than otherwise identical traits.
+
+```{r}
+## Test - power should be higher at p = 0.1 vs p = 0.9
+calc_NCP(p = 0.1, Nd = 500, Nc = 9500, B = 0.1, prev = 0.05)
+calc_NCP(p = 0.9, Nd = 500, Nc = 9500, B = 0.1, prev = 0.05)
+```
+
+Alternatively, we expect to have less power to detect asymmetries with a prevalence closer to 50%. This is due to asymmetries induced by the liability threshold model.
+
+```{r}
+## Test - power should be  lower at prev close to 0.5
+calc_NCP(p = 0.1, Nd = 500, Nc = 9500, B = 0.1, prev = 0.05)
+calc_NCP(p = 0.1, Nd = 500, Nc = 9500, B = 0.1, prev = 0.45)
+```
+
+## Calculating the Probability of Discovery for Minor Alleles
+
+So far we have only looked at our power to discover risk-increasing alleles, but we can generalize this information to our probability of discovery for a minor allele regardless of sign. To do this, we simply need to determine whether the minor or major allele is the risk-increasing allele.
+
+```{r}
+## Calculating probability of discovery of the minor allele
+prob_discovery <- function(x, sign, n_cases, n_controls, B, prev, alpha) {
+  
+  # x = minor allele frequency
+  # sign = sign of liability scale effect size
+  # n_cases = number of cases
+  # n_controls = number of controls
+  # B = absolute value of liability scale effect size
+  # prev = prevalence
+  # alpha = type 1 error (5e-8 for GWAS)
+  
+  # Flip to appropriate increasing allele frequency for given sign 
+  if (sign == 1) {
+    p <- x
+  } else if (sign == -1)  {
+    p <- 1 - x 
+  } else {
+    stop("Please enter a valid sign")
+  }
+
+  # Calculate NCP 
+  ncp <- calc_NCP(p = p, Nd = n_cases, Nc = n_controls, B = B, prev = prev)
+  
+  # Calculate power 
+  power <- 1 - pchisq(qchisq(1 - alpha, df = 1), df = 1, ncp = ncp)
+  
+  return(power)
+}
+```
+
+Of course the previous theoretical relationships still work as expected, but we can now compare the probability of discovery for risk-increasing alleles with risk-decreasing alleles. In general, we expect to have greater power to detect risk-increasing alleles, which is exactly what we see:
+
+```{r}
+## Test - probability of discovery should be higher for risk-increasing alleles
+prob_discovery(x = 0.1, sign = 1, n_cases = 500, n_controls = 9500, B = 0.1, prev = 0.05, alpha = 5e-8)
+prob_discovery(x = 0.1, sign = -1, n_cases = 500, n_controls = 9500, B = 0.1, prev = 0.05, alpha = 5e-8)
+```
+
+Now we will visualize the power difference between risk-increasing and risk-decreasing alleles across different prevalence values and allele frequencies.
+
+```{r, echo=FALSE}
+## Plots
+cols <- c("red", "blue")
+freq <- seq(0.01,0.5, 0.01)
+prev <- c(0.05, 0.45)
+signs <-c("positive", "negative")
+
+# Positive
+res1 <- mapply(prob_discovery, list(freq), sign= 1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+matplot(freq, res1, type = "l", lwd = 2,col = cols, lty =1, main = "Risk-Increasing Minor Allele", xlab = "Frequency", ylab = "Probability of Discovery")
+legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Negative 
+res2 <- mapply(prob_discovery, list(freq), sign= -1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+matplot(freq, res2, type = "l", lwd = 2,col = cols, lty =1, main = "Risk-Decreasing Minor Allele", xlab = "Frequency", ylab = "Probability of Discovery")
+legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Power differential 
+res <- res1 - res2
+matplot(freq, res, type = "l", lwd = 2,col = cols, lty =1, main = "Power Difference between Minor Alleles Signs", xlab = "Frequency", ylab = "Power Differential")
+legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Combine plots
+res1 <- mapply(prob_discovery, list(freq), sign= 1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+par(mar = c(5,4,4,8), xpd=TRUE)
+matplot(freq, res1, type = "l", lwd = 2,col = cols, lty =1, main = "Probability of Discovery", xlab = "Frequency", ylab = "Power")
+legend("right", inset = c(-0.22, 0), legend=prev, col = cols, lwd = 2, title = "Prevalence")
+lines(freq, res2[,1],lty = "dashed", col = "red")
+lines(freq, res2[,2],lty = "dashed", col = "blue")
+legend("topright", inset = c(-0.32, 0), legend=signs, lty=c("solid", "dashed"), lwd = 2, title = "Sign of minor allele")
+
+```
+
+As we have shown above, we have greater power to detect risk-increasing minor alleles than risk-decreasing alleles. The differential between the signs is also depenednet on both prevalence and frequency, with lower prevalences having a greater differential.

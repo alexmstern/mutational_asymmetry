@@ -17,7 +17,7 @@ First we are interested in calculating the power to detect risk-increasing allel
 ## Calculate non-centrality parameter 
 calc_NCP <- function(p, Nd, Nc, B, prev) {
   
-  # p = risk-increasing allele freq 
+  # p = risk-increasing allele frequency 
   # Nd = number of cases
   # Nc = number of controls 
   # B = absolute value of liability scale effect size

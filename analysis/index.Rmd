@@ -8,4 +8,6 @@ editor_options:
   chunk_output_type: console
 ---
 
-Click on this [link](NCP.html) to see my results.
+[NCP](NCP.html)
+[power asymmetry](power.html)
+[evolutionary asymmetry](evolutionary.html)

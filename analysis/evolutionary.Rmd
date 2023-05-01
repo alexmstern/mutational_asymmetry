@@ -1,0 +1,69 @@
+---
+title: "__ placeholder __"
+author: "Alex Stern"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Likelihood models under evolutionary asymmetry only
+
+So far we have looked primarily at the power asymmetry model, but we have yet to discuss evolutionary asymmetry.
+
+Under this model, we can calculate the proportional probability of observing a given frequency of an allele based on its selection coefficient. Note that this probability should not be interpreted directly, as it is only a proportional probability for various frequencies among the risk-increasing alleles.
+
+```{r}
+## Proportional probability of observing an increasing allele at frequency p, given a selection coefficient
+p_x <- function(p, gamma) {
+  
+  # p = risk-increasing allele frequency
+  # gamma = population scale selection coefficient
+  
+  numerator <- exp(-gamma * p)
+  
+  denominator <- p * (1 - p)
+  
+  return(numerator / denominator)
+}
+```
+
+We can apply Bayes' theorem similarly to how we applied it to the power asymmetry model to calculate the probability of a given sign in the evolutionary model. Most of the terms end up cancelling, leaving us with with a simple equation.
+
+```{r}
+# Function to calculate the probability that the minor allele is trait increasing, given its frequency and the selection coefficient
+prob_sign_evo <- function(x, gamma) {
+  
+  # x = minor allele frequency
+  # gamma = population scale selection coefficient
+  
+  result <- 1 / (1 + exp(gamma * (2*x - 1)))
+  return(result)
+}
+```
+
+Using these probabilities, we can simulate data for a trait with a given selection coefficient and minor allele frequency at each site.
+
+```{r}
+sim_data_evo <- function(L, vec_x, gamma) {
+  
+  # L = number of sites
+  # x = minor allele frequency
+  # gamma = population scale selection coefficient
+  
+  prob_sign <- rep(0,L)
+  for (i in 1:L) {
+    prob_sign[i] <- prob_sign_evo(vec_x[i], gamma)
+  }
+  
+  # Draw the sign based on the probability above
+  vec_obs_b <- rbinom(L, 1, prob_sign)
+  # Convert each element to 1 or -1 depending on whether it increases or decreases the trait
+  vec_obs_b <- (vec_obs_b - 0.5) * 2
+  
+  return(vec_obs_b)
+}
+```
+

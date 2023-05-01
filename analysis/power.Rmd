@@ -1,0 +1,125 @@
+---
+title: "__ placeholder __"
+author: "Alex Stern"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE, child = "NCP.Rmd"}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Likelihood models under power asymmetry only
+
+We have thus far used the power asymmetry model to give us information about the probability that a variant is discovered given a variety parameters regarding the population, including its sign. Using Bayes' theorem, we can translate this into information about the probability that a given variant is trait-increasing or trait-decreasing based on whether or not it was discovered.
+
+```{r}
+knitr::read_chunk("NCP.Rmd")
+likelihood_sign <- function(x, sign, n_cases, n_controls, B, prev, alpha) {
+  
+  # x = minor allele frequency
+  # sign = sign of liability scale effect size
+  # n_cases = number of cases
+  # n_controls = number of controls
+  # B = absolute value of liability scale effect size
+  # prev = prevalence
+  # alpha = type 1 error (5e-8 for GWAS)
+  
+  numerator <- prob_discovery(x, sign, n_cases, n_controls, B, prev, alpha) * 0.5
+  
+  denominator <- prob_discovery(x, 1, n_cases, n_controls, B, prev, alpha) / 2 + prob_discovery(x, -1, n_cases, n_controls, B, prev, alpha) / 2
+  
+  lik <- numerator / denominator
+  return(lik)
+}
+```
+
+We can test this function using the same intuition we used for our NCP calculations. Namely, we expect trait-increasing alleles to be more likely to be discovered.
+
+```{r}
+knitr::read_chunk("NCP.Rmd")
+## Test - likelihood should be higher for increasing alleles
+likelihood_sign(x = 0.1, sign = 1, n_cases = 500, n_controls = 9500, B = 0.2, prev = 0.05, alpha = 5e-8)
+likelihood_sign(x = 0.1, sign = -1, n_cases = 500, n_controls = 9500, B = 0.2, prev = 0.05, alpha = 5e-8)
+```
+
+This calculation also gives us a new way to visualize the gap between trait-increasing and trait-decreasing alleles in regard to probability of discovery.
+
+```{r}
+knitr::read_chunk("NCP.Rmd")
+## Plots
+cols <- c("red", "blue")
+freq <- seq(0.01, 0.5, 0.01)
+prev <- c(0.05, 0.45)
+signs <-c("positive", "negative")
+
+# Positive
+res1 <- mapply(likelihood_sign, list(freq), sign= 1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+matplot(freq, res1, type = "l", lwd = 2, col = cols, lty =1, main = "Risk-Increasing Minor Allele", xlab = "Frequency", ylab = "Likelihood")
+legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Negative 
+res2 <- mapply(likelihood_sign, list(freq), sign= -1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+matplot(freq, res2, type = "l", lwd = 2,col = cols, lty =1, main = "Risk-Decreasing Minor Allele", xlab = "Frequency", ylab = "Likelihood")
+legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Power differential 
+# res <- res1 - res2
+# matplot(freq, res, type = "l", lwd = 2,col = cols, lty =1, main = "Power Difference between Minor Alleles Signs", xlab = "Frequency", ylab = "Power Differential")
+# legend("topleft", legend=prev, col = cols, lwd = 2, title = "Prevalence")
+
+# Combine plots
+res1 <- mapply(likelihood_sign, list(freq), sign= 1, n_cases=500, n_controls=9500, B=0.2, alpha=5e-8,prev = prev)
+par(mar = c(5,4,4,8), xpd=TRUE)
+matplot(freq, res1, type = "l", lwd = 2, col = cols, lty = 1, main = "Probability of Discovery", xlab = "Frequency", ylab = "Likelihood", ylim=c(0,1))
+legend("right", inset = c(-0.22, 0), legend=prev, col = cols, lwd = 2, title = "Prevalence")
+lines(freq, res2[,1],lty = "dashed", col = "red")
+lines(freq, res2[,2],lty = "dashed", col = "blue")
+legend("topright", inset = c(-0.32, 0), legend=signs, lty=c("solid", "dashed"), lwd = 2, title = "Sign of minor allele")
+```
+
+While these simple examples demonstrate the asymmetry nicely, we can extend our model by simulating real data and using our likelihood estimate model on the simulations. This simulation works by calculating the probability that a given allele is increasing or decreasing based on the population information, and then generating a random sign based on that probability.
+
+```{r}
+knitr::read_chunk("NCP.Rmd")
+## Simulate genotype with L sites given population
+sim_data <- function(L, x, B, n_cases, n_controls, alpha, prev) {
+  
+  # L = number of sites
+  # x = minor allele frequency
+  # B = absolute value of liability scale effect size
+  # n_cases = number of cases 
+  # n_controls = number of controls
+  # alpha =  type 1 error (5e-8 for GWAS)
+  # prev = prevalence
+  
+  
+  # Make all alleles the same frequency
+  obv_x <- rep(0.1, L) # is this supposed to be 0.1?
+  
+  prob_sign <- rep(0,L)
+  for (l in 1:L) {
+    prob_sign[l] <- likelihood_sign(x = obv_x[l], sign = 1, n_cases, n_controls, B, prev, alpha)
+  }
+  
+  # Draw the sign based on the probability above
+  vec_obs_b <- rbinom(L, 1, prob_sign)
+  # Convert each element to 1 or -1 depending on whether it increases or decreases the trait
+  vec_obs_b<- (vec_obs_b - 0.5) * 2
+  
+  return(vec_obs_b)
+}
+```
+
+Although the behavior of this function is nondeterministic, we generally expect to have a lower number of increasing alleles when the prevalence is lower in our population:
+
+```{r}
+knitr::read_chunk("NCP.Rmd")
+## Test - we should have more positive signs when prev is 0.05 than 0.45
+obs_0.05 <- sim_data(L=1000, x=0.1, n_cases=500, n_controls = 9500, B=0.2, alpha = 5e-8, prev = 0.05)
+obs_0.45 <- sim_data(L=1000, x=0.1, n_cases=500, n_controls = 9500, B=0.2, alpha = 5e-8, prev = 0.45)
+
+table(obs_0.05)
+table(obs_0.45)
+```
+
